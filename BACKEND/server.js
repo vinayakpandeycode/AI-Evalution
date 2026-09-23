@@ -12,6 +12,7 @@ const evaluationRoutes = require("./routes/EvaluationRoute");
 const marksRoutes = require("./routes/MarksRoute");
 const authRoutes = require("./routes/authRoutes");
 const pptRoutes = require("./routes/pptRoutes");
+const aiRoutes = require("./routes/AIRoute");
 
 const app = express();
 
@@ -49,6 +50,7 @@ app.use("/api/evaluations", evaluationRoutes);
 app.use("/api/data", marksRoutes);
 app.use("/api/auth", authRoutes); // ✅ login and signup
 app.use("/api/ppt", pptRoutes);
+app.use("/api/ai", aiRoutes);
 
 // ✅ Unknown Route Handling
 app.use((req, res) => {

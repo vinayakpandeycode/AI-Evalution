@@ -1,119 +1,253 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 const PptxGenJS = require("pptxgenjs");
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API);
-
 const generateSlides = async (topic) => {
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  if (!process.env.OPENROUTER_API_KEY) {
+    throw new Error("OPENROUTER_API_KEY is not configured");
+  }
+
+  const model = process.env.OPENROUTER_MODEL || "openrouter/free";
 
   const prompt = `
-      Generate 5 PowerPoint slides for the topic: **${topic}**.
-  
-      For each slide, return:
-      - A **subheading** summarizing the slide.
-      - **Detailed content** explaining the subheading. Keep every content to 5 bullet points with a maximum of 20 words each.
-  
-      Format:
-      Slide <Number>
-      Subheading: <Subheading>
-      Content:
-      * <Point 1>
-      * <Point 2>
-      * <Point 3>
-      * <Point 4>
-      * <Point 5>
-    `;
+Create exactly 5 PowerPoint slides for the topic:
+
+"${topic}"
+
+Return ONLY valid JSON.
+
+Required JSON format:
+
+{
+  "slides": [
+    {
+      "subheading": "Short slide subheading",
+      "content": [
+        "Bullet point 1",
+        "Bullet point 2",
+        "Bullet point 3",
+        "Bullet point 4",
+        "Bullet point 5"
+      ]
+    }
+  ]
+}
+
+Rules:
+- Exactly 5 slides.
+- Every slide must have exactly 5 bullet points.
+- Each bullet should be clear and educational.
+- Each bullet should contain no more than 20 words.
+- Do not use markdown.
+- Do not use code fences.
+- Do not add explanations outside JSON.
+`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const responseText = await result.response.text();
-    console.log("📄 Gemini Raw Response:\n", responseText);
+    console.log("🤖 Generating PPT content using OpenRouter...");
+    console.log("📌 Model:", model);
+    console.log("📌 Topic:", topic);
 
+    const response = await fetch(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "http://localhost:5173",
+          "X-Title": "AI-EvaluAIte PPT Generator",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a professional educational PowerPoint content generator. Return only valid JSON.",
+            },
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          temperature: 0.4,
+        }),
+      }
+    );
 
-    const slidesData = responseText.split(/(?=\*\*Slide \d+\*\*)/).slice(1);
+    const data = await response.json();
 
-    return slidesData
-      .map((section, index) => {
-        const subheadingMatch = section.match(/Subheading:\s*(.+)/);
-        const contentMatch = section.match(/Content:\s*([\s\S]*)/);
+    if (!response.ok) {
+      console.error("❌ OpenRouter PPT error:", data);
 
-        let content = contentMatch
-          ? contentMatch[1]
-              .trim()
-              .split("\n")
-              .map((line) => line.trim())
-          : [];
+      throw new Error(
+        data?.error?.message ||
+          "OpenRouter failed to generate PPT content"
+      );
+    }
 
-        return {
-          title: `Slide ${index + 1}`,
-          subheading: subheadingMatch
-            ? subheadingMatch[1].trim()
-            : "No Subheading",
-          content: content.length > 0 ? content.join("\n") : "No Content",
-        };
-      })
-      .slice(0, 5);
+    let responseText =
+      data?.choices?.[0]?.message?.content?.trim();
+
+    if (!responseText) {
+      throw new Error("OpenRouter returned empty PPT content");
+    }
+
+    console.log("📄 OpenRouter Raw Response:");
+    console.log(responseText);
+
+    // Remove accidental markdown code fences
+    responseText = responseText
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+
+    let parsed;
+
+    try {
+      parsed = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error("❌ Failed to parse OpenRouter JSON:");
+      console.error(responseText);
+
+      throw new Error(
+        "OpenRouter returned invalid JSON for PPT slides"
+      );
+    }
+
+    if (!parsed.slides || !Array.isArray(parsed.slides)) {
+      throw new Error("Invalid slide structure returned by OpenRouter");
+    }
+
+    const slides = parsed.slides.slice(0, 5).map((slide, index) => {
+      const content = Array.isArray(slide.content)
+        ? slide.content
+            .map((point) => String(point).trim())
+            .filter(Boolean)
+            .slice(0, 5)
+        : [];
+
+      return {
+        title: `Slide ${index + 1}`,
+        subheading:
+          String(slide.subheading || `Slide ${index + 1}`).trim(),
+        content:
+          content.length > 0
+            ? content.join("\n")
+            : "No content generated",
+      };
+    });
+
+    if (slides.length === 0) {
+      throw new Error("No slides generated");
+    }
+
+    console.log(`✅ ${slides.length} slides generated`);
+
+    return slides;
   } catch (error) {
-    console.error("❌ Gemini API Error:", error);
-    throw new Error("Gemini generation failed");
+    console.error(
+      "❌ generateSlides error:",
+      error.message || error
+    );
+
+    throw error;
   }
 };
 
-const generatePPT = async (title, slides) => {
-  let ppt = new PptxGenJS();
 
-  ppt.defineLayout({ name: "A4", width: 8.5, height: 11 });
-  ppt.layout = "A4";
+const generatePPT = async (topic, slidesData) => {
+  try {
+    console.log("📊 Creating PowerPoint file...");
+    console.log("📌 Topic:", topic);
 
-  let slide1 = ppt.addSlide();
-  slide1.background = { fill: "FFA500" };
-  slide1.addText(title, {
-    x: "10%",
-    y: "40%",
-    w: "80%",
-    fontSize: 36,
-    bold: true,
-    color: "000000",
-    align: "center",
-  });
+    const ppt = new PptxGenJS();
 
-  slides.forEach((slideData, index) => {
-    let { subheading, content } = slideData;
+    ppt.layout = "LAYOUT_WIDE";
+    ppt.author = "AI-EvaluAIte";
+    ppt.subject = topic;
+    ppt.title = topic;
+    ppt.company = "AI-EvaluAIte";
+    ppt.lang = "en-US";
 
-    let slide = ppt.addSlide();
-    slide.background = { fill: "FFA500" };
+    slidesData.forEach((slideData, index) => {
+      const { subheading, content } = slideData;
 
-    slide.addText(`Slide ${index + 1}: ${subheading}`, {
-      x: "10%",
-      y: "10%",
-      w: "80%",
-      fontSize: 28,
-      bold: true,
-      color: "000000",
-      align: "center",
+      const slide = ppt.addSlide();
+
+      slide.background = {
+        color: "FFA500",
+      };
+
+      slide.addText(`Slide ${index + 1}: ${subheading}`, {
+        x: "10%",
+        y: "10%",
+        w: "80%",
+        h: "15%",
+        fontSize: 28,
+        bold: true,
+        color: "000000",
+        align: "center",
+        valign: "mid",
+      });
+
+      const bulletPoints = content
+        .split("\n")
+        .map((point) => point.trim())
+        .filter(Boolean)
+        .map((point) => ({
+          text: point,
+          options: {
+            bullet: {
+              indent: 18,
+            },
+            hanging: 3,
+            fontSize: 20,
+            color: "FFFFFF",
+          },
+        }));
+
+      slide.addText(bulletPoints, {
+        x: "10%",
+        y: "30%",
+        w: "80%",
+        h: "60%",
+        fontSize: 20,
+        color: "FFFFFF",
+        align: "left",
+        valign: "top",
+        breakLine: true,
+        margin: 0.08,
+      });
     });
 
-    let bulletPoints = content.split("\n").map((point) => ({
-      text: point,
-      options: { fontSize: 20, color: "FFFFFF" },
-    }));
+    const fileName = `lecture_${Date.now()}.pptx`;
 
-    slide.addText(bulletPoints, {
-      x: "10%",
-      y: "30%",
-      w: "80%",
-      h: "60%",
-      fontSize: 20,
-      color: "FFFFFF",
-      align: "left",
-      bullet: true,
+    const filePath = require("path").join(
+      process.cwd(),
+      fileName
+    );
+
+    await ppt.writeFile({
+      fileName: filePath,
     });
-  });
 
-  const fileName = `lecture_${Date.now()}.pptx`;
-  await ppt.writeFile({ fileName });
+    console.log("✅ PPT generated successfully:");
+    console.log(filePath);
 
-  return fileName;
+    return fileName;
+  } catch (error) {
+    console.error(
+      "❌ generatePPT error:",
+      error.message || error
+    );
+
+    throw error;
+  }
 };
 
-module.exports = { generateSlides, generatePPT };
+
+module.exports = {
+  generateSlides,
+  generatePPT,
+};
