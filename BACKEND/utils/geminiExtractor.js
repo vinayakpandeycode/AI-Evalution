@@ -1,5 +1,10 @@
-const { PDFParse } = require("pdf-parse");
 require("dotenv").config();
+
+// Important for pdf-parse v2.x in Vercel/serverless environments.
+// The worker must be loaded before importing PDFParse.
+require("pdf-parse/worker");
+
+const { PDFParse } = require("pdf-parse");
 
 /**
  * =========================================================
@@ -338,13 +343,10 @@ Carefully read the handwriting and maintain the answer sequence.
       );
 
       return text;
-
     } finally {
       clearTimeout(timeout);
     }
-
   } catch (error) {
-
     /**
      * Request timeout
      */
