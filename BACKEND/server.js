@@ -25,35 +25,32 @@ const app = express();
 
 const allowedOrigins = [
   process.env.CLIENT_URL,
+
+  // Local development
   "http://localhost:5173",
   "http://localhost:3000",
+
+  // Production frontend
+  "https://ai-evalution-jade.vercel.app",
+
+  // Current Vercel frontend deployment
+  "https://ai-evalution-qhwf.vercel.app",
 ].filter(Boolean);
+
+console.log("🌐 Allowed CORS origins:");
+console.log(allowedOrigins);
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests without an Origin header
-      // (Postman, server-to-server requests, etc.)
+      // Requests without Origin
+      // Example: Postman / server-to-server requests
       if (!origin) {
         return callback(null, true);
       }
 
-      // Allow configured origins
       if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      /**
-       * Allow Vercel preview deployments.
-       *
-       * Example:
-       * https://ai-evuation-p4v30inxt-vinayakpandey2027-3596s-projects.vercel.app
-       */
-      if (
-        /^https:\/\/ai-evuation-[a-z0-9-]+-vinayakpandey2027-3596s-projects\.vercel\.app$/.test(
-          origin
-        )
-      ) {
+        console.log("✅ CORS allowed:", origin);
         return callback(null, true);
       }
 
@@ -65,16 +62,38 @@ app.use(
     },
 
     credentials: true,
+
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
+
+    optionsSuccessStatus: 204,
   })
 );
 
 /**
  * =========================================================
- * MIDDLEWARE
+ * BODY PARSING
  * =========================================================
  */
 
 app.use(express.json());
+
+/**
+ * =========================================================
+ * COOKIE PARSER
+ * =========================================================
+ */
 
 app.use(cookieParser());
 
@@ -86,15 +105,24 @@ app.use(cookieParser());
 
 app.use(
   session({
-    secret: process.env.JWT_SECRET,
+    secret:
+      process.env.JWT_SECRET ||
+      "temporary-development-secret",
+
     resave: false,
+
     saveUninitialized: false,
+
     cookie: {
-      secure: process.env.NODE_ENV === "production",
+      secure:
+        process.env.NODE_ENV === "production",
+
       sameSite:
         process.env.NODE_ENV === "production"
           ? "none"
           : "lax",
+
+      httpOnly: true,
     },
   })
 );
@@ -106,6 +134,7 @@ app.use(
  */
 
 app.use(passport.initialize());
+
 app.use(passport.session());
 
 /**
@@ -120,7 +149,10 @@ mongoose
     console.log("MongoDB Connected");
   })
   .catch((err) => {
-    console.error("MongoDB Error:", err);
+    console.error(
+      "MongoDB Error:",
+      err
+    );
   });
 
 /**
@@ -129,19 +161,59 @@ mongoose
  * =========================================================
  */
 
-app.use("/api/evaluations", evaluationRoutes);
+app.use(
+  "/api/evaluations",
+  evaluationRoutes
+);
 
-app.use("/api/data", marksRoutes);
+app.use(
+  "/api/data",
+  marksRoutes
+);
 
-app.use("/api/auth", authRoutes);
+app.use(
+  "/api/auth",
+  authRoutes
+);
 
-app.use("/api/ppt", pptRoutes);
+app.use(
+  "/api/ppt",
+  pptRoutes
+);
 
-app.use("/api/ai", aiRoutes);
+app.use(
+  "/api/ai",
+  aiRoutes
+);
 
 /**
  * =========================================================
- * ROOT / UNKNOWN ROUTES
+ * HEALTH CHECK
+ * =========================================================
+ */
+
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    message: "AI-EvaluAIte backend is running",
+  });
+});
+
+/**
+ * =========================================================
+ * ROOT ROUTE
+ * =========================================================
+ */
+
+app.get("/", (req, res) => {
+  res.status(200).json({
+    message: "AI-EvaluAIte backend is running",
+  });
+});
+
+/**
+ * =========================================================
+ * 404 ROUTE
  * =========================================================
  */
 
